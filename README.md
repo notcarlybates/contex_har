@@ -1,6 +1,6 @@
 # DeepConvContext: A Multi-Scale Approach to Timeseries Classification in Human Activtiy Recognition 
 
-![DeepConvContext overview](architecture.png)
+![DeepConvContext overview](architecture.jpg)
 
 ## Abstract
 Despite recognized limitations in modeling long-range temporal dependencies, Human Activity Recognition (HAR) has traditionally relied on a sliding window approach to segment labeled datasets. Deep learning models like DeepConvLSTM typically classify each window independently, thereby restricting learnable temporal context to within-window information. To address this constraint, we propose DeepConvContext, a multi-scale time series classification framework for HAR. Drawing inspiration from the vision-based Temporal Action Localization community, DeepConvContext models both intra- and inter-window temporal patterns by processing sequences of time-ordered windows. Unlike recent HAR models that incorporate attention mechanisms, DeepConvContext relies solely on LSTMs. Our ablation studies demonstrate the superior performance of LSTMs over attention-based variants for modeling inertial sensor data. Benchmark evaluations across six widely-used HAR datasets show that DeepConvContext achieves up to a 10% improvement in F1-score over the original DeepConvLSTM.

@@ -30,4 +30,4 @@ To recreate confusion matrices as well as compute scoring metrics mentioned in t
 In order to log experiments to [Neptune.ai](https://neptune.ai) please provide `project` and `api_token` information in your local deployment (see `main.py`)
 
 ## Contact
-Marius Bock (marius.bock(at)uni-siegen.de
+Marius Bock (marius.bock(at)uni-siegen.de)

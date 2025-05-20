@@ -1,0 +1,47 @@
+python main.py --config ./configs/main_experiments/deepconvlstm/wear_loso_lstm_1_100.yaml --seed 1 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/wear_loso_lstm_1_100.yaml --seed 2 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/wear_loso_lstm_1_100.yaml --seed 3 --neptune --ckpt-freq 30
+
+python main.py --config ./configs/main_experiments/deepconvlstm/wear_loso_lstm_2_100.yaml --seed 1 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/wear_loso_lstm_2_100.yaml --seed 2 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/wear_loso_lstm_2_100.yaml --seed 3 --neptune
+
+python main.py --config ./configs/main_experiments/deepconvlstm/sbhar_loso_lstm_1_100.yaml --seed 1 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/sbhar_loso_lstm_1_100.yaml --seed 2 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/sbhar_loso_lstm_1_100.yaml --seed 3 --neptune --ckpt-freq 30
+
+python main.py --config ./configs/main_experiments/deepconvlstm/sbhar_loso_lstm_2_100.yaml --seed 1 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/sbhar_loso_lstm_2_100.yaml --seed 2 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/sbhar_loso_lstm_2_100.yaml --seed 3 --neptune
+
+python main.py --config ./configs/main_experiments/deepconvlstm/wetlab_loso_lstm_1_100.yaml --seed 1 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/wetlab_loso_lstm_1_100.yaml --seed 2 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/wetlab_loso_lstm_1_100.yaml --seed 3 --neptune --ckpt-freq 30
+
+python main.py --config ./configs/main_experiments/deepconvlstm/wetlab_loso_lstm_2_100.yaml --seed 1 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/wetlab_loso_lstm_2_100.yaml --seed 2 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/wetlab_loso_lstm_2_100.yaml --seed 3 --neptune
+
+python main.py --config ./configs/main_experiments/deepconvlstm/rwhar_loso_lstm_1_100.yaml --seed 1 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/rwhar_loso_lstm_1_100.yaml --seed 2 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/rwhar_loso_lstm_1_100.yaml --seed 3 --neptune --ckpt-freq 30
+
+python main.py --config ./configs/main_experiments/deepconvlstm/rwhar_loso_lstm_2_100.yaml --seed 1 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/rwhar_loso_lstm_2_100.yaml --seed 2 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/rwhar_loso_lstm_2_100.yaml --seed 3 --neptune
+
+python main.py --config ./configs/main_experiments/deepconvlstm/opportunity_loso_lstm_1_100.yaml --seed 1 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/opportunity_loso_lstm_1_100.yaml --seed 2 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/opportunity_loso_lstm_1_100.yaml --seed 3 --neptune --ckpt-freq 30
+
+python main.py --config ./configs/main_experiments/deepconvlstm/opportunity_loso_lstm_2_100.yaml --seed 1 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/opportunity_loso_lstm_2_100.yaml --seed 2 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/opportunity_loso_lstm_2_100.yaml --seed 3 --neptune
+
+python main.py --config ./configs/main_experiments/deepconvlstm/hangtime_loso_lstm_1_100.yaml --seed 1 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/hangtime_loso_lstm_1_100.yaml --seed 2 --neptune --ckpt-freq 30
+python main.py --config ./configs/main_experiments/deepconvlstm/hangtime_loso_lstm_1_100.yaml --seed 3 --neptune --ckpt-freq 30
+
+python main.py --config ./configs/main_experiments/deepconvlstm/hangtime_loso_lstm_2_100.yaml --seed 1 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/hangtime_loso_lstm_2_100.yaml --seed 2 --neptune
+python main.py --config ./configs/main_experiments/deepconvlstm/hangtime_loso_lstm_2_100.yaml --seed 3 --neptune

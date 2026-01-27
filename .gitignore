@@ -3,6 +3,7 @@ experiments
 data
 .idea
 .neptune
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

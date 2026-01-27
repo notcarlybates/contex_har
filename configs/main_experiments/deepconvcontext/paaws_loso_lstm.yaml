@@ -1,0 +1,39 @@
+name: deepconvcontext
+dataset_name: paaws
+has_null: true
+anno_json:
+- ./data/paaws/annotations/loso_sbj_10.json
+dataset:
+  sens_folder: ./data/paaws/raw/inertial
+  input_dim: 3
+  sampling_rate: 80
+  num_classes: 49
+  window_size: 80
+  window_overlap: 50
+  tiou_thresholds:
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+model:
+  conv_kernels: 64
+  conv_kernel_size: 9
+  lstm_units: 128
+  lstm_layers: 1
+  dropout: 0.5
+  type: lstm
+  bidirectional: false
+  attention_num_heads: 4
+  transformer_depth: 3
+train_cfg:
+  lr: 0.0001
+  lr_decay: 0.9
+  lr_step: 10
+  epochs: 30
+  weight_decay: 1.0e-06
+  weight_init: xavier_normal
+  weighted_loss: true
+loader:
+  train_batch_size: 100
+  test_batch_size: 100

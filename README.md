@@ -14,6 +14,56 @@ Please follow instructions mentioned in the [INSTALL.md](/INSTALL.md) file.
 ## Download
 The datasets used for conducting experiments can be downloaded [here](https://uni-siegen.sciebo.de/s/oikTt0G8kIDZvaL).
 
+## PAAWS Data Processing
+
+To process raw PAAWS accelerometer data into model-ready format, use `prepare_paaws.py`. This script:
+
+1. Syncs accelerometer data (80 Hz ActiGraph CSVs) with activity labels by timestamp
+2. Generates per-subject CSVs in `data/paaws/raw/inertial/`
+3. Generates LOSO JSON annotations in `data/paaws/annotations/`
+4. Auto-generates a YAML training config
+
+### Usage
+
+```
+python prepare_paaws.py --paaws-dir /mnt/storage/for_release
+```
+
+#### Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--paaws-dir` | `/mnt/storage/for_release` | Path to PAAWS parent directory containing `PAAWS_FreeLiving/` and `PAAWS_SimFL_Lab/` |
+| `--accel-pattern` | `DS_{id}-Lab-LeftWristTop.csv` | Accelerometer filename pattern (`{id}` is replaced per subject) |
+| `--label-column` | `PA_TYPE` | Column in label CSV to use as activity class |
+| `--null-class` | `null` | Label assigned to unlabeled time regions |
+
+### Expected Input Structure
+
+```
+/mnt/storage/for_release/
+├── PAAWS_FreeLiving/
+│   └── DS_<id>/
+│       ├── DS_<id>-Free-LeftWristTop.csv  # ActiGraph accelerometer (10-line header, 80 Hz)
+│       └── label/
+│           └── DS_<id>-Free-label.csv     # Activity labels (START_TIME, STOP_TIME, PA_TYPE)
+└── PAAWS_SimFL_Lab/
+    └── DS_<id>/
+        ├── DS_<id>-Lab-LeftWristTop.csv
+        └── label/
+            └── DS_<id>-Lab-label.csv
+```
+
+Subjects are prefixed `fl_` or `lab_` to disambiguate overlapping IDs across directories. New subjects added to either subdirectory are picked up automatically on re-run.
+
+### One-Step Prepare + Train
+
+```bash
+bash scripts/prepare_and_train_paaws.sh
+```
+
+This runs `prepare_paaws.py` followed by `main.py` with the generated config.
+
 ## Reproduce Experiments
 Once having installed requirements, one can rerun experiments by running the `main.py` script:
 

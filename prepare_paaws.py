@@ -21,6 +21,11 @@ from glob import glob
 
 import pandas as pd
 import yaml
+from tqdm import tqdm
+
+
+# Labels that should be treated as null (unlabeled)
+NULL_LABELS = {"Video_Unavailable", "Indecipherable"}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -69,7 +74,8 @@ def sync_labels(accel_df, label_df, label_column="PA_TYPE"):
         mask = (accel_df["Timestamp"] >= row["START_TIME"]) & (
             accel_df["Timestamp"] <= row["STOP_TIME"]
         )
-        accel_df.loc[mask, "label"] = row[label_column]
+        lbl = row[label_column]
+        accel_df.loc[mask, "label"] = "null" if lbl in NULL_LABELS else lbl
 
     return accel_df
 
@@ -117,6 +123,7 @@ def collect_unique_labels(label_files, label_column):
         if label_column in df.columns:
             unique.update(df[label_column].dropna().unique())
 
+    unique -= NULL_LABELS
     mapping = {}
     for i, lbl in enumerate(sorted(unique), start=1):
         mapping[lbl] = i
@@ -136,7 +143,7 @@ def build_subject_annotations(label_path, label_column, label_mapping, fps):
         start_sec = (parse_timestamp(row["START_TIME"]) - ref_time).total_seconds()
         stop_sec = (parse_timestamp(row["STOP_TIME"]) - ref_time).total_seconds()
         label = row[label_column]
-        if pd.isna(label):
+        if pd.isna(label) or label in NULL_LABELS:
             label = "null"
         label_id = label_mapping.get(label, 0)
 
@@ -352,11 +359,11 @@ def main():
     print("\n=== Step A: Syncing accelerometer data with labels ===")
     processed = {}  # sbj_id -> {label_path, sampling_rate}
 
-    for ds_folder, prefix, file_tag in ds_entries:
+    for ds_folder, prefix, file_tag in tqdm(ds_entries, desc="Step A: Syncing subjects"):
         folder_name = os.path.basename(ds_folder)
         match = re.match(r"DS_(\d+)", folder_name)
         if not match:
-            print(f"  Warning: skipping {folder_name} (cannot extract ID)")
+            tqdm.write(f"  Warning: skipping {folder_name} (cannot extract ID)")
             continue
         sbj_num = match.group(1)
         sbj_id = f"sbj_{prefix}_{sbj_num}"
@@ -364,12 +371,12 @@ def main():
         accel_pattern = args.accel_pattern.replace("Lab", file_tag)
         accel_path = find_accel_file(ds_folder, sbj_num, accel_pattern)
         if accel_path is None:
-            print(f"  Warning: no accelerometer file for {folder_name}, skipping")
+            tqdm.write(f"  Warning: no accelerometer file for {folder_name}, skipping")
             continue
 
         label_path = find_label_file(ds_folder, sbj_num, file_tag)
         if label_path is None:
-            print(f"  Warning: no label file for {folder_name}, skipping")
+            tqdm.write(f"  Warning: no label file for {folder_name}, skipping")
             continue
 
         # Read accelerometer
@@ -384,7 +391,7 @@ def main():
         # Write CSV
         out_csv = os.path.join(inertial_dir, f"{sbj_id}.csv")
         n_rows = write_model_csv(synced, sbj_num, out_csv)
-        print(f"  {sbj_id}: {n_rows} rows -> {out_csv}")
+        tqdm.write(f"  {sbj_id}: {n_rows} rows -> {out_csv}")
 
         processed[sbj_id] = {
             "label_path": label_path,

@@ -7,7 +7,6 @@
 
 import os
 import numpy as np
-import pandas as pd
 
 
 def sliding_window_samples(data, win_len, overlap_ratio=None):

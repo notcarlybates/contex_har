@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timedelta
 from glob import glob
 
-import pandas as pd
+import polars as pl
 import yaml
 from tqdm import tqdm
 
@@ -44,9 +44,10 @@ def read_actigraph(filepath):
         start_date = f.readline().split()[-1]  # "Start Date M/D/YYYY"
 
     start = datetime.strptime(f"{start_date} {start_time}", "%m/%d/%Y %H:%M:%S")
-    df = pd.read_csv(filepath, skiprows=10, header=0)
+    df = pl.read_csv(filepath, skip_rows=10, has_header=True)
     step = timedelta(seconds=1 / sampling_rate)
-    df["Timestamp"] = [start + i * step for i in range(len(df))]
+    timestamps = [start + i * step for i in range(len(df))]
+    df = df.with_columns(pl.Series("Timestamp", timestamps))
     return start, sampling_rate, df
 
 
@@ -56,43 +57,49 @@ def sync_labels(accel_df, label_df, label_column="PA_TYPE"):
     Rows between the first START_TIME and last STOP_TIME that fall outside
     any annotation segment receive the label ``"null"``.
     """
-    label_df = label_df.copy()
-    label_df["START_TIME"] = pd.to_datetime(label_df["START_TIME"])
-    label_df["STOP_TIME"] = pd.to_datetime(label_df["STOP_TIME"])
+    label_df = label_df.with_columns(
+        pl.col("START_TIME").str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
+        pl.col("STOP_TIME").str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
+    )
 
-    first_label = label_df["START_TIME"].iloc[0]
-    last_label = label_df["STOP_TIME"].iloc[-1]
+    first_label = label_df["START_TIME"][0]
+    last_label = label_df["STOP_TIME"][-1]
 
     # Trim to label time range
-    accel_df = accel_df[
-        (accel_df["Timestamp"] >= first_label) & (accel_df["Timestamp"] <= last_label)
-    ].copy()
+    accel_df = accel_df.filter(
+        (pl.col("Timestamp") >= first_label) & (pl.col("Timestamp") <= last_label)
+    )
 
-    accel_df["label"] = "null"
+    # Start with all "null"
+    label_col = pl.lit("null")
 
-    for _, row in label_df.iterrows():
-        mask = (accel_df["Timestamp"] >= row["START_TIME"]) & (
-            accel_df["Timestamp"] <= row["STOP_TIME"]
-        )
+    # Build a chained when/then for each label row (last match wins)
+    for row in label_df.iter_rows(named=True):
         lbl = row[label_column]
-        accel_df.loc[mask, "label"] = "null" if lbl in NULL_LABELS else lbl
+        assigned = "null" if lbl in NULL_LABELS else lbl
+        mask = (pl.col("Timestamp") >= row["START_TIME"]) & (
+            pl.col("Timestamp") <= row["STOP_TIME"]
+        )
+        label_col = pl.when(mask).then(pl.lit(assigned)).otherwise(label_col)
+
+    accel_df = accel_df.with_columns(label_col.alias("label"))
 
     return accel_df
 
 
 def write_model_csv(accel_df, sbj_id, output_path):
     """Write model-format CSV: sbj_id, acc_1, acc_2, acc_3, label."""
-    output = pd.DataFrame(
+    output = pl.DataFrame(
         {
-            "sbj_id": sbj_id,
-            "acc_1": accel_df["Accelerometer X"].values,
-            "acc_2": accel_df["Accelerometer Y"].values,
-            "acc_3": accel_df["Accelerometer Z"].values,
-            "label": accel_df["label"].values,
+            "sbj_id": [sbj_id] * len(accel_df),
+            "acc_1": accel_df["Accelerometer X"],
+            "acc_2": accel_df["Accelerometer Y"],
+            "acc_3": accel_df["Accelerometer Z"],
+            "label": accel_df["label"],
         }
     )
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    output.to_csv(output_path, index=False)
+    output.write_csv(output_path)
     return len(output)
 
 
@@ -119,9 +126,9 @@ def collect_unique_labels(label_files, label_column):
     """Scan all label CSVs and return an ordered label_mapping (null → 0, then alphabetical)."""
     unique = set()
     for path in label_files:
-        df = pd.read_csv(path)
+        df = pl.read_csv(path)
         if label_column in df.columns:
-            unique.update(df[label_column].dropna().unique())
+            unique.update(df[label_column].drop_nulls().unique().to_list())
 
     unique -= NULL_LABELS
     mapping = {}
@@ -135,15 +142,15 @@ def build_subject_annotations(label_path, label_column, label_mapping, fps):
 
     Returns (annotations_list, duration_seconds).
     """
-    df = pd.read_csv(label_path)
-    ref_time = parse_timestamp(df["START_TIME"].iloc[0])
+    df = pl.read_csv(label_path)
+    ref_time = parse_timestamp(df["START_TIME"][0])
 
     annotations = []
-    for _, row in df.iterrows():
+    for row in df.iter_rows(named=True):
         start_sec = (parse_timestamp(row["START_TIME"]) - ref_time).total_seconds()
         stop_sec = (parse_timestamp(row["STOP_TIME"]) - ref_time).total_seconds()
         label = row[label_column]
-        if pd.isna(label) or label in NULL_LABELS:
+        if label is None or label in NULL_LABELS:
             label = "null"
         label_id = label_mapping.get(label, 0)
 
@@ -159,7 +166,7 @@ def build_subject_annotations(label_path, label_column, label_mapping, fps):
         )
 
     duration = (
-        parse_timestamp(df["STOP_TIME"].iloc[-1]) - ref_time
+        parse_timestamp(df["STOP_TIME"][-1]) - ref_time
     ).total_seconds()
     return annotations, duration
 
@@ -383,7 +390,7 @@ def main():
         start_dt, sampling_rate, accel_df = read_actigraph(accel_path)
 
         # Read labels
-        label_df = pd.read_csv(label_path)
+        label_df = pl.read_csv(label_path)
 
         # Sync
         synced = sync_labels(accel_df, label_df, label_column=args.label_column)

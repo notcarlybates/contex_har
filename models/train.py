@@ -6,7 +6,7 @@
 # ------------------------------------------------------------------------
 import os
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.utils import compute_class_weight
@@ -64,10 +64,10 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
     # load train and val inertial data
     train_data, val_data = np.empty((0, cfg['dataset']['input_dim'] + 2)), np.empty((0, cfg['dataset']['input_dim'] + 2))
     for t_sbj in train_sbjs:
-        t_data = pd.read_csv(os.path.join(cfg['dataset']['sens_folder'], t_sbj + '.csv'), index_col=False, low_memory=False).replace({"label": cfg['label_dict']}).fillna(0).to_numpy()
+        t_data = pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], t_sbj + '.csv')).with_columns(pl.col("label").replace(cfg['label_dict'])).fill_null(0).to_numpy()
         train_data = np.append(train_data, t_data, axis=0)
     for v_sbj in val_sbjs:
-        v_data = pd.read_csv(os.path.join(cfg['dataset']['sens_folder'], v_sbj + '.csv'), index_col=False, low_memory=False).replace({"label": cfg['label_dict']}).fillna(0).to_numpy()
+        v_data = pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], v_sbj + '.csv')).with_columns(pl.col("label").replace(cfg['label_dict'])).fill_null(0).to_numpy()
         val_data = np.append(val_data, v_data, axis=0)
 
     # define inertial datasets
@@ -169,7 +169,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
 
         if epoch == (start_epoch + cfg['train_cfg']['epochs']) - 1:
             # save raw results (for later postprocessing)
-            v_results = pd.DataFrame({
+            v_results = pl.DataFrame({
                     'video_id' : v_segments['video-id'],
                     't_start' : v_segments['t-start'].tolist(),
                     't_end': v_segments['t-end'].tolist(),
@@ -179,7 +179,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
             mkdir_if_missing(os.path.join(ckpt_folder, 'unprocessed_results'))
             np.save(os.path.join(ckpt_folder, 'unprocessed_results', 'v_preds_' + split_name), v_preds)
             np.save(os.path.join(ckpt_folder, 'unprocessed_results', 'v_gt_' + split_name), v_gt)
-            v_results.to_csv(os.path.join(ckpt_folder, 'unprocessed_results', 'v_seg_' + split_name + '.csv'), index=False)
+            v_results.write_csv(os.path.join(ckpt_folder, 'unprocessed_results', 'v_seg_' + split_name + '.csv'))
 
         # calculate validation metrics
         v_mAP, _ = det_eval.evaluate(v_segments)

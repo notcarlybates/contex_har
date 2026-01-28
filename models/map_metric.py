@@ -8,7 +8,7 @@
 
 import os
 import json
-import pandas as pd
+import polars as pl
 import numpy as np
 from joblib import Parallel, delayed
 from typing import List
@@ -67,8 +67,8 @@ def load_gt_seg_from_json(json_anno, split=None, label='label_id', label_offset=
                 label_id = int(event[label])
             labels += [label_id]
 
-    # move to pd dataframe
-    gt_base = pd.DataFrame({
+    # move to pl dataframe
+    gt_base = pl.DataFrame({
         'video-id' : vids,
         't-start' : starts,
         't-end': stops,
@@ -103,8 +103,8 @@ def load_pred_seg_from_json(json_anno, label='label_id', label_offset=0):
             labels += [label_id]
             scores += [float(event['scores'])]
 
-    # move to pd dataframe
-    pred_base = pd.DataFrame({
+    # move to pl dataframe
+    pred_base = pl.DataFrame({
         'video-id' : vids,
         't-start' : starts,
         't-end': stops,
@@ -145,33 +145,27 @@ class ANETdetection(object):
             ant_file, split=self.split, label=label, label_offset=label_offset)
 
         # remove labels that does not exists in gt
-        self.activity_index = {j: i for i, j in enumerate(sorted(self.ground_truth['label'].unique()))}
-        self.ground_truth['label']=self.ground_truth['label'].replace(self.activity_index)
+        self.activity_index = {j: i for i, j in enumerate(sorted(self.ground_truth['label'].unique().to_list()))}
+        self.ground_truth = self.ground_truth.with_columns(pl.col('label').replace(self.activity_index))
 
-    def _get_predictions_with_label(self, prediction_by_label, label_name, cidx):
+    def _get_predictions_with_label(self, preds, label_name, cidx):
         """Get all predicitons of the given label. Return empty DataFrame if there
         is no predcitions with the given label.
         """
-        try:
-            res = prediction_by_label.get_group(cidx).reset_index(drop=True)
-            return res
-        except:
-            #print('Warning: No predictions of label \'%s\' were provdied.' % label_name)
-            return pd.DataFrame()
+        res = preds.filter(pl.col('label') == cidx)
+        if res.is_empty():
+            return pl.DataFrame()
+        return res
 
     def wrapper_compute_average_precision(self, preds):
         """Computes average precision for each class in the subset.
         """
         ap = np.zeros((len(self.tiou_thresholds), len(self.activity_index)))
 
-        # Adaptation to query faster
-        ground_truth_by_label = self.ground_truth.groupby('label')
-        prediction_by_label = preds.groupby('label')
-
         results = Parallel(n_jobs=self.num_workers)(
             delayed(compute_average_precision_detection)(
-                ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
-                prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
+                ground_truth=self.ground_truth.filter(pl.col('label') == cidx),
+                prediction=self._get_predictions_with_label(preds, label_name, cidx),
                 tiou_thresholds=self.tiou_thresholds,
             ) for label_name, cidx in self.activity_index.items())
 
@@ -185,14 +179,10 @@ class ANETdetection(object):
         """
         recall = np.zeros((len(self.tiou_thresholds), len(self.top_k), len(self.activity_index)))
 
-        # Adaptation to query faster
-        ground_truth_by_label = self.ground_truth.groupby('label')
-        prediction_by_label = preds.groupby('label')
-
         results = Parallel(n_jobs=self.num_workers)(
             delayed(compute_topkx_recall_detection)(
-                ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
-                prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
+                ground_truth=self.ground_truth.filter(pl.col('label') == cidx),
+                prediction=self._get_predictions_with_label(preds, label_name, cidx),
                 tiou_thresholds=self.tiou_thresholds,
                 top_k=self.top_k,
             ) for label_name, cidx in self.activity_index.items())
@@ -206,19 +196,19 @@ class ANETdetection(object):
         """Evaluates a prediction file. For the detection task we measure the
         interpolated mean average precision to measure the performance of a
         method.
-        preds can be (1) a pd.DataFrame; or (2) a json file where the data will be loaded;
+        preds can be (1) a pl.DataFrame; or (2) a json file where the data will be loaded;
         or (3) a python dict item with numpy arrays as the values
         """
 
-        if isinstance(preds, pd.DataFrame):
-            assert 'label' in preds
+        if isinstance(preds, pl.DataFrame):
+            assert 'label' in preds.columns
         elif isinstance(preds, str) and os.path.isfile(preds):
             preds = load_pred_seg_from_json(preds)
         elif isinstance(preds, Dict):
-            # move to pd dataframe
+            # move to pl dataframe
             # did not check dtype here, can accept both numpy / pytorch tensors
             try:
-                preds = pd.DataFrame({
+                preds = pl.DataFrame({
                 'video-id' : preds['video-id'],
                 't-start' : preds['t-start'].tolist(),
                 't-end': preds['t-end'].tolist(),
@@ -226,13 +216,13 @@ class ANETdetection(object):
                 'score': preds['score'].tolist()
                 })
             except:
-                preds = pd.DataFrame(columns=['video-id', 't-start', 't-end', 'label', 'score'])
-            
+                preds = pl.DataFrame(schema={'video-id': pl.Utf8, 't-start': pl.Float64, 't-end': pl.Float64, 'label': pl.Int64, 'score': pl.Float64})
+
         # always reset ap
         self.ap = None
 
         # make the label ids consistent
-        preds['label'] = preds['label'].replace(self.activity_index)
+        preds = preds.with_columns(pl.col('label').replace(self.activity_index))
 
         # compute mAP
         self.ap = self.wrapper_compute_average_precision(preds)
@@ -269,35 +259,36 @@ def compute_average_precision_detection(
         Average precision score.
     """
     ap = np.zeros(len(tiou_thresholds))
-    if prediction.empty:
+    if prediction.is_empty():
         return ap
 
     npos = float(len(ground_truth))
     lock_gt = np.ones((len(tiou_thresholds),len(ground_truth))) * -1
     # Sort predictions by decreasing score order.
-    sort_idx = prediction['score'].values.argsort()[::-1]
-    prediction = prediction.loc[sort_idx].reset_index(drop=True)
+    sort_idx = prediction['score'].to_numpy().argsort()[::-1]
+    prediction = prediction[sort_idx.tolist()]
 
     # Initialize true positive and false positive vectors.
     tp = np.zeros((len(tiou_thresholds), len(prediction)))
     fp = np.zeros((len(tiou_thresholds), len(prediction)))
 
-    # Adaptation to query faster
-    ground_truth_gbvn = ground_truth.groupby('video-id')
+    # Add original row index to ground truth for lock_gt tracking
+    ground_truth = ground_truth.with_row_index("_orig_idx")
 
     # Assigning true positive to truly ground truth instances.
-    for idx, this_pred in prediction.iterrows():
+    for idx in range(len(prediction)):
+        pred_row = prediction.row(idx, named=True)
 
-        try:
-            # Check if there is at least one ground truth in the video associated.
-            ground_truth_videoid = ground_truth_gbvn.get_group(this_pred['video-id'])
-        except Exception as e:
+        # Check if there is at least one ground truth in the video associated.
+        ground_truth_videoid = ground_truth.filter(pl.col('video-id') == pred_row['video-id'])
+        if ground_truth_videoid.is_empty():
             fp[:, idx] = 1
             continue
 
-        this_gt = ground_truth_videoid.reset_index()
-        tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
-                               this_gt[['t-start', 't-end']].values)
+        this_gt = ground_truth_videoid
+        pred_segment = np.array([pred_row['t-start'], pred_row['t-end']])
+        gt_segments = this_gt.select(['t-start', 't-end']).to_numpy()
+        tiou_arr = segment_iou(pred_segment, gt_segments)
         # We would like to retrieve the predictions with highest tiou score.
         tiou_sorted_idx = tiou_arr.argsort()[::-1]
         for tidx, tiou_thr in enumerate(tiou_thresholds):
@@ -305,11 +296,12 @@ def compute_average_precision_detection(
                 if tiou_arr[jdx] < tiou_thr:
                     fp[tidx, idx] = 1
                     break
-                if lock_gt[tidx, this_gt.loc[jdx]['index']] >= 0:
+                orig_gt_idx = this_gt['_orig_idx'][jdx]
+                if lock_gt[tidx, orig_gt_idx] >= 0:
                     continue
                 # Assign as true positive after the filters above.
                 tp[tidx, idx] = 1
-                lock_gt[tidx, this_gt.loc[jdx]['index']] = idx
+                lock_gt[tidx, orig_gt_idx] = idx
                 break
 
             if fp[tidx, idx] == 0 and tp[tidx, idx] == 0:
@@ -355,33 +347,31 @@ def compute_topkx_recall_detection(
     recall : float
         Recall score.
     """
-    if prediction.empty:
+    if prediction.is_empty():
         return np.zeros((len(tiou_thresholds), len(top_k)))
 
     # Initialize true positive vectors.
     tp = np.zeros((len(tiou_thresholds), len(top_k)))
     n_gts = 0
 
-    # Adaptation to query faster
-    ground_truth_gbvn = ground_truth.groupby('video-id')
-    prediction_gbvn = prediction.groupby('video-id')
+    # Get unique video ids from ground truth
+    gt_video_ids = ground_truth['video-id'].unique().to_list()
 
-    for videoid, _ in ground_truth_gbvn.groups.items():
-        ground_truth_videoid = ground_truth_gbvn.get_group(videoid)
+    for videoid in gt_video_ids:
+        ground_truth_videoid = ground_truth.filter(pl.col('video-id') == videoid)
         n_gts += len(ground_truth_videoid)
-        try:
-            prediction_videoid = prediction_gbvn.get_group(videoid)
-        except Exception as e:
+        prediction_videoid = prediction.filter(pl.col('video-id') == videoid)
+        if prediction_videoid.is_empty():
             continue
 
-        this_gt = ground_truth_videoid.reset_index()
-        this_pred = prediction_videoid.reset_index()
+        this_gt = ground_truth_videoid
+        this_pred = prediction_videoid
 
         # Sort predictions by decreasing score order.
-        score_sort_idx = this_pred['score'].values.argsort()[::-1]
+        score_sort_idx = this_pred['score'].to_numpy().argsort()[::-1]
         top_kx_idx = score_sort_idx[:max(top_k) * len(this_gt)]
-        tiou_arr = k_segment_iou(this_pred[['t-start', 't-end']].values[top_kx_idx],
-                                 this_gt[['t-start', 't-end']].values)
+        tiou_arr = k_segment_iou(this_pred.select(['t-start', 't-end']).to_numpy()[top_kx_idx],
+                                 this_gt.select(['t-start', 't-end']).to_numpy())
             
         for tidx, tiou_thr in enumerate(tiou_thresholds):
             for kidx, k in enumerate(top_k):

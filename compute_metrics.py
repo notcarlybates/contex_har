@@ -9,7 +9,7 @@ import os
 import json
 from matplotlib import pyplot as plt
 import numpy as np
-import pandas as pd
+import polars as pl
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 import seaborn as sns
 from models.map_metric import ANETdetection
@@ -219,7 +219,7 @@ for type in types:
                         v_data = np.empty((0, input_dim + 2))
                             
                         for sbj in val_sbjs:
-                            data = pd.read_csv(os.path.join('data/{}/raw/inertial'.format(dataset), sbj + '.csv'), index_col=False, low_memory=False).replace({"label": label_dict}).fillna(0).to_numpy()
+                            data = pl.read_csv(os.path.join('data/{}/raw/inertial'.format(dataset), sbj + '.csv')).with_columns(pl.col("label").replace(label_dict)).fill_null(0).to_numpy()
                             v_data = np.append(v_data, data, axis=0)
                             
                         v_preds = np.array([])

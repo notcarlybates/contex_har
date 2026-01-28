@@ -1,0 +1,14 @@
+[project]
+name = "contex-har"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "einops==0.8.1",
+    "matplotlib==3.10.1",
+    "neptune==1.13.0",
+    "scikit-learn==1.6.1",
+    "seaborn==0.13.2",
+    "tqdm==4.67.1",
+]

@@ -1,8 +1,7 @@
 name: deepconvcontext
 dataset_name: paaws
 has_null: true
-anno_json:
-- ./data/paaws/annotations/loso_sbj_10.json
+anno_folder: ./data/paaws/annotations
 dataset:
   sens_folder: ./data/paaws/raw/inertial
   input_dim: 3

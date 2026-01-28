@@ -237,11 +237,12 @@ def generate_loso_files(subjects_data, label_mapping, output_dir):
 
 def generate_yaml_config(anno_json_paths, num_classes, output_path):
     """Write a DeepConvContext YAML config for PAAWS."""
+    anno_folder = os.path.dirname(str(anno_json_paths[0]))
     config = {
         "name": "deepconvcontext",
         "dataset_name": "paaws",
         "has_null": True,
-        "anno_json": [str(p) for p in anno_json_paths],
+        "anno_folder": anno_folder,
         "dataset": {
             "sens_folder": "./data/paaws/raw/inertial",
             "input_dim": 3,

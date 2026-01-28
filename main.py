@@ -11,6 +11,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 import argparse
 import datetime
+import glob
 import json
 import os
 from pprint import pprint
@@ -64,8 +65,16 @@ def main(args):
     all_v_pred = np.array([])
     all_v_gt = np.array([])
     all_v_mAP = np.empty((0, len(config['dataset']['tiou_thresholds'])))
-        
-    for i, anno_split in enumerate(config['anno_json']):
+
+    # support both anno_folder (auto-discover) and anno_json (explicit list)
+    if 'anno_folder' in config:
+        anno_splits = sorted(glob.glob(os.path.join(config['anno_folder'], 'loso_*.json')))
+        if not anno_splits:
+            raise FileNotFoundError(f"No loso_*.json files found in '{config['anno_folder']}'")
+    else:
+        anno_splits = config['anno_json']
+
+    for i, anno_split in enumerate(anno_splits):
         with open(anno_split) as f:
             file = json.load(f)
         anno_file = file['database']
@@ -77,7 +86,7 @@ def main(args):
         train_sbjs = [x for x in anno_file if anno_file[x]['subset'] == 'Training']
         val_sbjs = [x for x in anno_file if anno_file[x]['subset'] == 'Validation']
 
-        print('Split {} / {}'.format(i + 1, len(config['anno_json'])))
+        print('Split {} / {}'.format(i + 1, len(anno_splits)))
         config['dataset']['json_anno'] = anno_split
         
         t_losses, v_losses, v_mAP, v_preds, v_gt, net = \

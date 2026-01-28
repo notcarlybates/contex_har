@@ -58,8 +58,14 @@ def sync_labels(accel_df, label_df, label_column="PA_TYPE"):
     any annotation segment receive the label ``"null"``.
     """
     label_df = label_df.with_columns(
-        pl.col("START_TIME").str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
-        pl.col("STOP_TIME").str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
+        pl.coalesce(
+            pl.col("START_TIME").cast(pl.Utf8).str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
+            pl.col("START_TIME").cast(pl.Utf8).str.to_datetime("%Y-%m-%d %H:%M:%S%.f", strict=False),
+        ).alias("START_TIME"),
+        pl.coalesce(
+            pl.col("STOP_TIME").cast(pl.Utf8).str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
+            pl.col("STOP_TIME").cast(pl.Utf8).str.to_datetime("%Y-%m-%d %H:%M:%S%.f", strict=False),
+        ).alias("STOP_TIME"),
     )
 
     first_label = label_df["START_TIME"][0]

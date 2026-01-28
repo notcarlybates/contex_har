@@ -69,6 +69,5 @@ class Logger(object):
             os.fsync(self.file.fileno())
 
     def close(self):
-        self.console.close()
         if self.file is not None:
             self.file.close()

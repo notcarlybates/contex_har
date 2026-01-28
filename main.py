@@ -17,6 +17,8 @@ from pprint import pprint
 import sys
 import time
 
+import gc
+
 import torch
 import numpy as np
 import neptune
@@ -106,6 +108,11 @@ def main(args):
 
         # save raw confusion matrix
         save_confusion_matrix(v_gt, v_preds, config['labels'], os.path.join(log_dir, 'sbj_' + str(i) + '.png'), 'sbj_' + str(i), normalize='true', neptune_run=run)
+
+        # free memory from this split
+        del t_losses, v_losses, v_mAP, v_preds, v_gt, net
+        gc.collect()
+        torch.cuda.empty_cache()
 
     # final raw results across all splits
     (v_acc, v_prec, v_rec, v_f1) = classification_scores(all_v_gt, all_v_pred, len(config['labels']))

@@ -62,13 +62,25 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
     """
     split_name = cfg['dataset']['json_anno'].split('/')[-1].split('.')[0]
     # load train and val inertial data
-    train_data, val_data = np.empty((0, cfg['dataset']['input_dim'] + 2)), np.empty((0, cfg['dataset']['input_dim'] + 2))
+    train_parts = []
     for t_sbj in train_sbjs:
-        t_data = pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], t_sbj + '.csv')).with_columns(pl.col("label").replace(cfg['label_dict'])).fill_null(0).to_numpy()
-        train_data = np.append(train_data, t_data, axis=0)
+        train_parts.append(
+            pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], t_sbj + '.csv'))
+            .with_columns(pl.col("label").replace(cfg['label_dict']))
+            .fill_null(0).to_numpy()
+        )
+    train_data = np.concatenate(train_parts, axis=0)
+    del train_parts
+
+    val_parts = []
     for v_sbj in val_sbjs:
-        v_data = pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], v_sbj + '.csv')).with_columns(pl.col("label").replace(cfg['label_dict'])).fill_null(0).to_numpy()
-        val_data = np.append(val_data, v_data, axis=0)
+        val_parts.append(
+            pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], v_sbj + '.csv'))
+            .with_columns(pl.col("label").replace(cfg['label_dict']))
+            .fill_null(0).to_numpy()
+        )
+    val_data = np.concatenate(val_parts, axis=0)
+    del val_parts
 
     # define inertial datasets
     train_dataset = InertialDataset(train_data, cfg['dataset']['window_size'], cfg['dataset']['window_overlap'], model=cfg['name'])
@@ -77,10 +89,10 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
     # define dataloaders
     if cfg['name'] == "shallow_deepconvlstm" or cfg['name'] == 'deepconvcontext':
         print("DID NOT SHUFFLE")
-        train_loader = DataLoader(train_dataset, cfg['loader']['train_batch_size'], shuffle=False, num_workers=4, worker_init_fn=worker_init_reset_seed, generator=rng_generator, persistent_workers=True)
+        train_loader = DataLoader(train_dataset, cfg['loader']['train_batch_size'], shuffle=False, num_workers=2, worker_init_fn=worker_init_reset_seed, generator=rng_generator, persistent_workers=False)
     else:
-        train_loader = DataLoader(train_dataset, cfg['loader']['train_batch_size'], shuffle=True, num_workers=4, worker_init_fn=worker_init_reset_seed, generator=rng_generator, persistent_workers=True)
-    test_loader = DataLoader(test_dataset, cfg['loader']['test_batch_size'], shuffle=False, num_workers=4, worker_init_fn=worker_init_reset_seed, generator=rng_generator, persistent_workers=True)
+        train_loader = DataLoader(train_dataset, cfg['loader']['train_batch_size'], shuffle=True, num_workers=2, worker_init_fn=worker_init_reset_seed, generator=rng_generator, persistent_workers=False)
+    test_loader = DataLoader(test_dataset, cfg['loader']['test_batch_size'], shuffle=False, num_workers=2, worker_init_fn=worker_init_reset_seed, generator=rng_generator, persistent_workers=False)
     
     # define network
     if cfg['name'] == 'deepconvlstm':
@@ -132,8 +144,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
             print("=> loaded checkpoint '{:s}' (epoch {:d}".format(resume, checkpoint['epoch']))
             del checkpoint
         else:
-            print("=> no checkpoint found at '{}'".format(resume))
-            return
+            raise FileNotFoundError(f"No checkpoint found at '{resume}'")
     else:
         net = init_weights(net, cfg['train_cfg']['weight_init'])
         start_epoch = 0

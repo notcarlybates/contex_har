@@ -16,7 +16,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from glob import glob
 
 import polars as pl
@@ -26,6 +26,17 @@ from tqdm import tqdm
 
 # Labels that should be treated as null (unlabeled)
 NULL_LABELS = {"Video_Unavailable", "Indecipherable"}
+
+
+def _parse_datetime_cols(df, *cols):
+    """Parse datetime columns trying multiple timestamp formats."""
+    return df.with_columns(
+        pl.coalesce(
+            pl.col(c).cast(pl.Utf8).str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
+            pl.col(c).cast(pl.Utf8).str.to_datetime("%Y-%m-%d %H:%M:%S%.f", strict=False),
+        ).alias(c)
+        for c in cols
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -45,9 +56,12 @@ def read_actigraph(filepath):
 
     start = datetime.strptime(f"{start_date} {start_time}", "%m/%d/%Y %H:%M:%S")
     df = pl.read_csv(filepath, skip_rows=10, has_header=True)
-    step = timedelta(seconds=1 / sampling_rate)
-    timestamps = [start + i * step for i in range(len(df))]
-    df = df.with_columns(pl.Series("Timestamp", timestamps))
+    step_us = 1_000_000 // sampling_rate
+    df = df.with_columns(
+        (pl.lit(start).cast(pl.Datetime("us"))
+         + pl.duration(microseconds=pl.arange(0, len(df), eager=True).cast(pl.Int64) * step_us)
+        ).alias("Timestamp")
+    )
     return start, sampling_rate, df
 
 
@@ -57,16 +71,7 @@ def sync_labels(accel_df, label_df, label_column="PA_TYPE"):
     Rows between the first START_TIME and last STOP_TIME that fall outside
     any annotation segment receive the label ``"null"``.
     """
-    label_df = label_df.with_columns(
-        pl.coalesce(
-            pl.col("START_TIME").cast(pl.Utf8).str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
-            pl.col("START_TIME").cast(pl.Utf8).str.to_datetime("%Y-%m-%d %H:%M:%S%.f", strict=False),
-        ).alias("START_TIME"),
-        pl.coalesce(
-            pl.col("STOP_TIME").cast(pl.Utf8).str.to_datetime("%m/%d/%Y %H:%M:%S%.f", strict=False),
-            pl.col("STOP_TIME").cast(pl.Utf8).str.to_datetime("%Y-%m-%d %H:%M:%S%.f", strict=False),
-        ).alias("STOP_TIME"),
-    )
+    label_df = _parse_datetime_cols(label_df, "START_TIME", "STOP_TIME")
 
     first_label = label_df["START_TIME"][0]
     last_label = label_df["STOP_TIME"][-1]
@@ -76,19 +81,33 @@ def sync_labels(accel_df, label_df, label_column="PA_TYPE"):
         (pl.col("Timestamp") >= first_label) & (pl.col("Timestamp") <= last_label)
     )
 
-    # Start with all "null"
-    label_col = pl.lit("null")
+    # Map NULL_LABELS -> "null"
+    label_df = label_df.with_columns(
+        pl.when(pl.col(label_column).is_in(list(NULL_LABELS)))
+        .then(pl.lit("null"))
+        .otherwise(pl.col(label_column))
+        .alias("_label")
+    ).sort("START_TIME")
 
-    # Build a chained when/then for each label row (last match wins)
-    for row in label_df.iter_rows(named=True):
-        lbl = row[label_column]
-        assigned = "null" if lbl in NULL_LABELS else lbl
-        mask = (pl.col("Timestamp") >= row["START_TIME"]) & (
-            pl.col("Timestamp") <= row["STOP_TIME"]
+    accel_df = accel_df.sort("Timestamp")
+
+    # Backward join: each accel row gets the latest label whose START_TIME <= Timestamp
+    joined = accel_df.join_asof(
+        label_df.select("START_TIME", "STOP_TIME", "_label"),
+        left_on="Timestamp",
+        right_on="START_TIME",
+        strategy="backward",
+    )
+
+    # Rows where Timestamp > STOP_TIME (or no match) get "null"
+    accel_df = joined.with_columns(
+        pl.when(
+            pl.col("STOP_TIME").is_not_null() & (pl.col("Timestamp") <= pl.col("STOP_TIME"))
         )
-        label_col = pl.when(mask).then(pl.lit(assigned)).otherwise(label_col)
-
-    accel_df = accel_df.with_columns(label_col.alias("label"))
+        .then(pl.col("_label"))
+        .otherwise(pl.lit("null"))
+        .alias("label")
+    ).select("Accelerometer X", "Accelerometer Y", "Accelerometer Z", "Timestamp", "label")
 
     return accel_df
 
@@ -113,21 +132,6 @@ def write_model_csv(accel_df, sbj_id, output_path):
 # Step B helpers: LOSO JSON generation
 # ──────────────────────────────────────────────────────────────────────
 
-def parse_timestamp(ts_str):
-    """Parse a timestamp string into a datetime object."""
-    for fmt in (
-        "%Y-%m-%d %H:%M:%S.%f",
-        "%Y-%m-%d %H:%M:%S",
-        "%m/%d/%Y %H:%M:%S.%f",
-        "%m/%d/%Y %H:%M:%S",
-    ):
-        try:
-            return datetime.strptime(str(ts_str).strip(), fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"Could not parse timestamp: {ts_str}")
-
-
 def collect_unique_labels(label_files, label_column):
     """Scan all label CSVs and return an ordered label_mapping (null → 0, then alphabetical)."""
     unique = set()
@@ -149,31 +153,42 @@ def build_subject_annotations(label_path, label_column, label_mapping, fps):
     Returns (annotations_list, duration_seconds).
     """
     df = pl.read_csv(label_path)
-    ref_time = parse_timestamp(df["START_TIME"][0])
+    df = _parse_datetime_cols(df, "START_TIME", "STOP_TIME")
 
-    annotations = []
-    for row in df.iter_rows(named=True):
-        start_sec = (parse_timestamp(row["START_TIME"]) - ref_time).total_seconds()
-        stop_sec = (parse_timestamp(row["STOP_TIME"]) - ref_time).total_seconds()
-        label = row[label_column]
-        if label is None or label in NULL_LABELS:
-            label = "null"
-        label_id = label_mapping.get(label, 0)
+    ref_time = df["START_TIME"][0]
 
-        length = stop_sec - start_sec
-        annotations.append(
-            {
-                "segment": [start_sec, stop_sec],
-                "segment (frames)": [start_sec * fps, stop_sec * fps],
-                "label_id": label_id,
-                "label": label,
-                "length": length,
-            }
-        )
+    # Vectorized seconds computation
+    df = df.with_columns(
+        ((pl.col("START_TIME") - ref_time).dt.total_microseconds() / 1_000_000).alias("start_sec"),
+        ((pl.col("STOP_TIME") - ref_time).dt.total_microseconds() / 1_000_000).alias("stop_sec"),
+    ).with_columns(
+        (pl.col("stop_sec") - pl.col("start_sec")).alias("length"),
+    )
 
-    duration = (
-        parse_timestamp(df["STOP_TIME"][-1]) - ref_time
-    ).total_seconds()
+    # Vectorized label mapping
+    full_mapping = {"null": 0, **label_mapping}
+    df = df.with_columns(
+        pl.when(pl.col(label_column).is_null() | pl.col(label_column).is_in(list(NULL_LABELS)))
+        .then(pl.lit("null"))
+        .otherwise(pl.col(label_column))
+        .alias("_label")
+    ).with_columns(
+        pl.col("_label").replace_strict(full_mapping, default=0).alias("label_id")
+    )
+
+    # Final conversion to list of dicts (cheap — only label rows, not accel rows)
+    annotations = [
+        {
+            "segment": [r["start_sec"], r["stop_sec"]],
+            "segment (frames)": [r["start_sec"] * fps, r["stop_sec"] * fps],
+            "label_id": r["label_id"],
+            "label": r["_label"],
+            "length": r["length"],
+        }
+        for r in df.select("start_sec", "stop_sec", "label_id", "_label", "length").iter_rows(named=True)
+    ]
+
+    duration = df["stop_sec"][-1]
     return annotations, duration
 
 

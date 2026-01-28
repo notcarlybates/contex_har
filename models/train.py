@@ -68,7 +68,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
     for t_sbj in train_sbjs:
         train_parts.append(
             pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], t_sbj + '.csv'))
-            .with_columns(pl.col("label").replace(cfg['label_dict']))
+            .with_columns(pl.col("label").replace(cfg['label_dict']).cast(pl.Int64, strict=False))
             .fill_null(0).to_numpy().astype(np.float32)
         )
     train_data = np.concatenate(train_parts, axis=0)
@@ -78,7 +78,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
     for v_sbj in val_sbjs:
         val_parts.append(
             pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], v_sbj + '.csv'))
-            .with_columns(pl.col("label").replace(cfg['label_dict']))
+            .with_columns(pl.col("label").replace(cfg['label_dict']).cast(pl.Int64, strict=False))
             .fill_null(0).to_numpy().astype(np.float32)
         )
     val_data = np.concatenate(val_parts, axis=0)

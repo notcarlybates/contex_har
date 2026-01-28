@@ -4,7 +4,9 @@
 # Adaption by: Marius Bock
 # E-Mail: marius.bock(at)uni-siegen.de
 # ------------------------------------------------------------------------
+import gc
 import os
+
 import numpy as np
 import polars as pl
 
@@ -67,7 +69,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
         train_parts.append(
             pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], t_sbj + '.csv'))
             .with_columns(pl.col("label").replace(cfg['label_dict']))
-            .fill_null(0).to_numpy()
+            .fill_null(0).to_numpy().astype(np.float32)
         )
     train_data = np.concatenate(train_parts, axis=0)
     del train_parts
@@ -77,7 +79,7 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
         val_parts.append(
             pl.read_csv(os.path.join(cfg['dataset']['sens_folder'], v_sbj + '.csv'))
             .with_columns(pl.col("label").replace(cfg['label_dict']))
-            .fill_null(0).to_numpy()
+            .fill_null(0).to_numpy().astype(np.float32)
         )
     val_data = np.concatenate(val_parts, axis=0)
     del val_parts
@@ -85,6 +87,10 @@ def run_inertial_network(train_sbjs, val_sbjs, cfg, ckpt_folder, ckpt_freq, resu
     # define inertial datasets
     train_dataset = InertialDataset(train_data, cfg['dataset']['window_size'], cfg['dataset']['window_overlap'], model=cfg['name'])
     test_dataset = InertialDataset(val_data, cfg['dataset']['window_size'], cfg['dataset']['window_overlap'], model=cfg['name'])
+
+    # free raw data arrays (datasets now hold windowed copies)
+    del train_data, val_data
+    gc.collect()
 
     # define dataloaders
     if cfg['name'] == "shallow_deepconvlstm" or cfg['name'] == 'deepconvcontext':
